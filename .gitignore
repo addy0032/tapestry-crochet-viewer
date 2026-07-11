@@ -1,0 +1,80 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# =========================
+# IDEs
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# OS Files
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =========================
+# Build / Distribution
+# =========================
+build/
+dist/
+*.spec
+
+# PyInstaller
+*.manifest
+
+# =========================
+# Python Packaging
+# =========================
+*.egg-info/
+.eggs/
+*.egg
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# Cache
+# =========================
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# =========================
+# Local Project Files
+# =========================
+*.crochet
+*.crochetproj
+*.json.bak
+autosave.json
+
+# Sample/Test Files
+test_*.png
+test_*.json
+
+# User Images (optional)
+patterns/
+exports/
+projects/
+
+# =========================
+# Temporary Files
+# =========================
+*.tmp
+*.temp
+*.bak
