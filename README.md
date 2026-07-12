@@ -39,7 +39,7 @@
 ### 5. Automated Project Management
 *   **Companion JSON Files:** Opening a raw PNG, JPG, or BMP file automatically initializes a project and saves it next to the image as `image_name.json`.
 *   **Non-Intrusive Saving:** Manually pressing `Ctrl+S` (or clicking Save) directly overwrites the current project file and updates the status bar without opening file-picker prompts. Use **Save Project As...** (`Ctrl+Shift+S`) to save to a new location.
-*   **Global Metadata Mapping:** Project files are mapped in `C:\Users\Addy\.crochet_companion_metadata.json`. Opening a raw PNG image in the future automatically links and loads your saved JSON project (restoring bookmarks, progress, notes, and custom colors) instead of creating a blank project.
+*   **Global Metadata Mapping:** Project files are mapped in `.crochet_companion_metadata.json` under the user's home directory (e.g. `C:\Users\<Username>\.crochet_companion_metadata.json` on Windows). Opening a raw PNG image in the future automatically links and loads your saved JSON project (restoring bookmarks, progress, notes, and custom colors) instead of creating a blank project.
 
 ### 6. Bookmarks & Notes
 *   **Bookmarks:** Bookmark rows to display red indicator dots next to ruler labels and view them in a jump list.
