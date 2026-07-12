@@ -16,7 +16,7 @@ from utils import ToggleStitchCommand
 
 # Metadata helper database for linking PNG files to JSON projects
 def get_companion_metadata_path():
-    return r"C:\Users\Addy\.crochet_companion_metadata.json"
+    return os.path.join(os.path.expanduser("~"), ".crochet_companion_metadata.json")
 
 def get_companion_project_path(image_path):
     path = get_companion_metadata_path()
@@ -791,6 +791,36 @@ class CrochetMainWindow(QMainWindow):
         self.statusbar.update_progress()
         self.palette_panel.refresh_stats()
         self.palette_panel.minimap.update()
+
+    def keyPressEvent(self, event):
+        focused = self.focusWidget()
+        from PySide6.QtWidgets import QLineEdit, QTextEdit
+        if isinstance(focused, (QLineEdit, QTextEdit)):
+            super().keyPressEvent(event)
+            return
+
+        if event.key() == Qt.Key_Space:
+            if self.canvas and self.project:
+                self.canvas.keyPressEvent(event)
+                event.accept()
+                return
+
+        super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        focused = self.focusWidget()
+        from PySide6.QtWidgets import QLineEdit, QTextEdit
+        if isinstance(focused, (QLineEdit, QTextEdit)):
+            super().keyReleaseEvent(event)
+            return
+
+        if event.key() == Qt.Key_Space:
+            if self.canvas and self.project:
+                self.canvas.keyReleaseEvent(event)
+                event.accept()
+                return
+
+        super().keyReleaseEvent(event)
 
     def closeEvent(self, event):
         if self.project and self.project.dirty:

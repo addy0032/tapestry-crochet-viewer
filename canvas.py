@@ -243,9 +243,9 @@ class Canvas(QWidget):
             if 0 <= new_r < H:
                 # Determine starting column for the new row based on its direction
                 new_dir = self.get_row_direction(new_r)
-                # If moving forward, we start at the beginning of new row's path.
-                # If moving backward, we start at the end of new row's path.
-                is_forward_movement = (step > 0)
+                # If moving forward along flow, we start at the beginning of new row's path.
+                # If moving backward along flow, we start at the end of new row's path.
+                is_forward_movement = (effective_step > 0)
                 
                 # Starting column:
                 if new_dir == 1: # new row is L2R
@@ -256,15 +256,22 @@ class Canvas(QWidget):
                 self.move_cursor_to(new_r, new_c)
             else:
                 # Wrap around to start/end of pattern
+                is_forward_movement = (effective_step > 0)
                 if step > 0:
-                    # Wrap to bottom row start
+                    # Wrap to bottom row (row 0)
                     start_dir = self.get_row_direction(0)
-                    start_c = 0 if start_dir == 1 else W - 1
+                    if start_dir == 1:
+                        start_c = 0 if is_forward_movement else W - 1
+                    else:
+                        start_c = W - 1 if is_forward_movement else 0
                     self.move_cursor_to(0, start_c)
                 else:
-                    # Wrap to top row end
+                    # Wrap to top row (row H - 1)
                     end_dir = self.get_row_direction(H - 1)
-                    end_c = W - 1 if end_dir == 1 else 0
+                    if end_dir == 1:
+                        end_c = 0 if is_forward_movement else W - 1
+                    else:
+                        end_c = W - 1 if is_forward_movement else 0
                     self.move_cursor_to(H - 1, end_c)
 
     # --- Mouse Events ---
@@ -420,7 +427,67 @@ class Canvas(QWidget):
             self.setCursor(QCursor(Qt.ArrowCursor))
             # If released without panning, advance cursor (Space = Next Stitch)
             if not self.panned_during_space:
+                # Mark current stitch as completed
+                r, c = self.project.current_cursor
+                if (r, c) not in self.project.completed_stitches:
+                    cmd = ToggleStitchCommand(self.project, {(r, c)}, True, self.update_view)
+                    self.undo_stack.push(cmd)
+                    self.progressChanged.emit()
                 self.advance_cursor(1)
+
+    def keyPressEvent(self, event):
+        if not self.project:
+            super().keyPressEvent(event)
+            return
+            
+        if event.isAutoRepeat():
+            event.accept()
+            return
+            
+        if event.key() == Qt.Key_Space:
+            if event.modifiers() & Qt.ShiftModifier:
+                # Shift + Space: step backward
+                self.advance_cursor(-1)
+                # Unmark new cursor stitch
+                r, c = self.project.current_cursor
+                if (r, c) in self.project.completed_stitches:
+                    cmd = ToggleStitchCommand(self.project, {(r, c)}, False, self.update_view)
+                    self.undo_stack.push(cmd)
+                    self.progressChanged.emit()
+            else:
+                # Space: start pan mode
+                self.set_space_pressed(True)
+            event.accept()
+        elif event.key() == Qt.Key_Left:
+            self.move_cursor_to(self.project.current_cursor[0], self.project.current_cursor[1] - 1)
+            event.accept()
+        elif event.key() == Qt.Key_Right:
+            self.move_cursor_to(self.project.current_cursor[0], self.project.current_cursor[1] + 1)
+            event.accept()
+        elif event.key() == Qt.Key_Up:
+            self.move_cursor_to(self.project.current_cursor[0] + 1, self.project.current_cursor[1])
+            event.accept()
+        elif event.key() == Qt.Key_Down:
+            self.move_cursor_to(self.project.current_cursor[0] - 1, self.project.current_cursor[1])
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        if not self.project:
+            super().keyReleaseEvent(event)
+            return
+            
+        if event.isAutoRepeat():
+            event.accept()
+            return
+            
+        if event.key() == Qt.Key_Space:
+            if self.space_pressed:
+                self.set_space_pressed(False)
+            event.accept()
+        else:
+            super().keyReleaseEvent(event)
 
     # --- Drawing Logic ---
     def paintEvent(self, event):
