@@ -26,6 +26,7 @@
 ### 3. Palette Management & Stitch Counts
 *   **Compact List:** Shows color swatches, details (Symbol, Name, Hex code), and total stitch counts (e.g. `12400 sts`) side-by-side in the panel.
 *   **Global Recolor:** Select any color in your palette and click **Replace Color...** to select a new shade. All matching cells in the grid, the count details, and the minimap preview will update immediately.
+*   **Paint Stitch Mode (Recolor Pixels):** Toggle the **Tool** selector dropdown in the toolbar to `Paint Stitch` to color individual cells on the grid using the selected palette color. This operation automatically updates the sidebar list count, the minimap preview, is fully undoable/redoable, and is saved in your JSON file.
 *   **Palette Renaming:** Select a color and click **Rename Selected...** to customize its name (e.g. "Main Background") and symbol (e.g. "C1").
 
 ### 4. Crochet Direction & Auto-Cursor

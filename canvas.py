@@ -11,6 +11,7 @@ class Canvas(QWidget):
     hoverChanged = Signal(int, int, str)       # row, col, color_hex
     zoomChanged = Signal(float)               # zoom_factor
     progressChanged = Signal()                # triggered on drawing / row / col fill
+    paletteChanged = Signal()
     
     # Zoom levels and cell sizes in pixels
     ZOOM_LEVELS = [0.0625, 0.125, 0.25, 0.375, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0, 64.0]
@@ -63,6 +64,11 @@ class Canvas(QWidget):
         # Hover state
         self.hover_row = -1
         self.hover_col = -1
+        
+        # Tool mode and drawing state for pixel paint
+        self.tool_mode = 'Track Progress'
+        self.active_paint_color_callback = None
+        self.paint_stroke_restores = {}
 
     def set_project(self, project, undo_stack):
         self.project = project
@@ -187,6 +193,15 @@ class Canvas(QWidget):
         
         return row, col
 
+    def get_active_paint_color(self):
+        if self.active_paint_color_callback:
+            return self.active_paint_color_callback()
+        return None
+
+    def update_view_and_palette(self):
+        self.update_view()
+        self.paletteChanged.emit()
+
     # --- Navigation & Auto-Cursor Movements ---
     def move_cursor_to(self, row, col):
         if not self.project:
@@ -200,14 +215,17 @@ class Canvas(QWidget):
     def get_row_direction(self, r):
         """Returns 1 for Left-to-Right, -1 for Right-to-Left."""
         if self.project.direction_mode == 'L2R':
-            return 1
+            base_dir = 1
         elif self.project.direction_mode == 'R2L':
-            return -1
+            base_dir = -1
         else:  # Snake Mode (row 0 is bottom row, which starts L2R)
             # Even rows: L2R (1), Odd rows: R2L (-1)
-            # (If reverse_direction is toggled, it flips)
             base_dir = 1 if (r % 2 == 0) else -1
-            return base_dir
+            
+        if getattr(self.project, 'reverse_direction', False):
+            base_dir *= -1
+            
+        return base_dir
 
     def advance_cursor(self, step=1):
         """
@@ -221,13 +239,9 @@ class Canvas(QWidget):
         W = self.project.width
         H = self.project.height
         
-        # Direction factor (1 for forward, -1 for backward in crochet path)
-        flow_dir = 1 if not self.project.reverse_direction else -1
-        effective_step = step * flow_dir
-        
-        # Calculate next stitch
+        # Calculate next stitch direction factor
         dir_factor = self.get_row_direction(r)
-        step_delta = effective_step * dir_factor
+        step_delta = step * dir_factor
         
         new_c = c + step_delta
         
@@ -235,17 +249,13 @@ class Canvas(QWidget):
             self.move_cursor_to(r, new_c)
         else:
             # End of row reached: move to next row
-            # If step_delta is positive (moving right in L2R, or left in R2L)
-            # We reached the end of the row. Move to next row: r + 1 (or r - 1 if moving backward)
             row_step = 1 if step > 0 else -1
             new_r = r + row_step
             
             if 0 <= new_r < H:
                 # Determine starting column for the new row based on its direction
                 new_dir = self.get_row_direction(new_r)
-                # If moving forward along flow, we start at the beginning of new row's path.
-                # If moving backward along flow, we start at the end of new row's path.
-                is_forward_movement = (effective_step > 0)
+                is_forward_movement = (step > 0)
                 
                 # Starting column:
                 if new_dir == 1: # new row is L2R
@@ -256,7 +266,7 @@ class Canvas(QWidget):
                 self.move_cursor_to(new_r, new_c)
             else:
                 # Wrap around to start/end of pattern
-                is_forward_movement = (effective_step > 0)
+                is_forward_movement = (step > 0)
                 if step > 0:
                     # Wrap to bottom row (row 0)
                     start_dir = self.get_row_direction(0)
@@ -312,26 +322,48 @@ class Canvas(QWidget):
             self.panned_during_space = True
             return
 
-        # Painting / Erasing stitches
+        # Painting / Erasing stitches / Recolor pixels
         if event.button() == Qt.LeftButton or event.button() == Qt.RightButton:
             row, col = self.widget_to_grid(pos)
             if 0 <= row < self.project.height and 0 <= col < self.project.width:
                 self.drawing = True
                 self.stroke_original_states = {}
                 
-                # Left button paints completed; Right button paints erased
-                if event.button() == Qt.LeftButton:
-                    self.drawing_mode = 'paint'
+                if self.tool_mode == 'Paint Stitch':
+                    active_color = self.get_active_paint_color()
+                    if not active_color:
+                        self.drawing = False
+                        return
+                    self.paint_stroke_restores = {}
+                    s = (row, col)
+                    old_hex = self.project.pixel_hexes[row][col]
+                    old_rgb = self.project.pixels[row][col]
+                    self.paint_stroke_restores[s] = (old_hex, old_rgb)
+                    self.stroke_original_states[s] = active_color
+                    
+                    self.project.pixel_hexes[row][col] = active_color
+                    r_val = int(active_color[1:3], 16)
+                    g_val = int(active_color[3:5], 16)
+                    b_val = int(active_color[5:7], 16)
+                    self.project.pixels[row][col] = (r_val, g_val, b_val)
+                    
+                    if old_hex in self.project.color_palette:
+                        self.project.color_palette[old_hex]['count'] = max(0, self.project.color_palette[old_hex]['count'] - 1)
+                    if active_color in self.project.color_palette:
+                        self.project.color_palette[active_color]['count'] += 1
                 else:
-                    self.drawing_mode = 'erase'
-                
-                # Apply to first clicked stitch
-                s = (row, col)
-                self.stroke_original_states[s] = s in self.project.completed_stitches
-                if self.drawing_mode == 'paint':
-                    self.project.completed_stitches.add(s)
-                else:
-                    self.project.completed_stitches.discard(s)
+                    # Left button paints completed; Right button paints erased
+                    if event.button() == Qt.LeftButton:
+                        self.drawing_mode = 'paint'
+                    else:
+                        self.drawing_mode = 'erase'
+                    
+                    s = (row, col)
+                    self.stroke_original_states[s] = s in self.project.completed_stitches
+                    if self.drawing_mode == 'paint':
+                        self.project.completed_stitches.add(s)
+                    else:
+                        self.project.completed_stitches.discard(s)
                     
                 self.move_cursor_to(row, col)
                 self.update()
@@ -371,13 +403,33 @@ class Canvas(QWidget):
             row, col = self.widget_to_grid(pos)
             if 0 <= row < self.project.height and 0 <= col < self.project.width:
                 s = (row, col)
-                if s not in self.stroke_original_states:
-                    self.stroke_original_states[s] = s in self.project.completed_stitches
-                    
-                if self.drawing_mode == 'paint':
-                    self.project.completed_stitches.add(s)
+                if self.tool_mode == 'Paint Stitch':
+                    if s not in self.stroke_original_states:
+                        active_color = self.get_active_paint_color()
+                        if active_color:
+                            old_hex = self.project.pixel_hexes[row][col]
+                            old_rgb = self.project.pixels[row][col]
+                            self.paint_stroke_restores[s] = (old_hex, old_rgb)
+                            self.stroke_original_states[s] = active_color
+                            
+                            self.project.pixel_hexes[row][col] = active_color
+                            r_val = int(active_color[1:3], 16)
+                            g_val = int(active_color[3:5], 16)
+                            b_val = int(active_color[5:7], 16)
+                            self.project.pixels[row][col] = (r_val, g_val, b_val)
+                            
+                            if old_hex in self.project.color_palette:
+                                self.project.color_palette[old_hex]['count'] = max(0, self.project.color_palette[old_hex]['count'] - 1)
+                            if active_color in self.project.color_palette:
+                                self.project.color_palette[active_color]['count'] += 1
                 else:
-                    self.project.completed_stitches.discard(s)
+                    if s not in self.stroke_original_states:
+                        self.stroke_original_states[s] = s in self.project.completed_stitches
+                        
+                    if self.drawing_mode == 'paint':
+                        self.project.completed_stitches.add(s)
+                    else:
+                        self.project.completed_stitches.discard(s)
                     
                 # Update current cursor to match drag lead
                 if self.project.current_cursor != [row, col]:
@@ -398,13 +450,28 @@ class Canvas(QWidget):
             self.drawing = False
             # Push the drag stroke onto the Undo stack
             if self.stroke_original_states:
-                cmd = ToggleStitchCommand(
-                    self.project,
-                    self.stroke_original_states.keys(),
-                    self.drawing_mode == 'paint',
-                    self.update_view
-                )
-                self.undo_stack.push(cmd)
+                if self.tool_mode == 'Paint Stitch':
+                    from utils import PaintStitchCommand
+                    # Temporarily restore colors so Command redo does it cleanly and triggers updates
+                    for (r, c), new_hex in self.stroke_original_states.items():
+                        old_hex, old_rgb = self.paint_stroke_restores[(r, c)]
+                        self.project.pixel_hexes[r][c] = old_hex
+                        self.project.pixels[r][c] = old_rgb
+                        if old_hex in self.project.color_palette:
+                            self.project.color_palette[old_hex]['count'] += 1
+                        if new_hex in self.project.color_palette:
+                            self.project.color_palette[new_hex]['count'] = max(0, self.project.color_palette[new_hex]['count'] - 1)
+                            
+                    cmd = PaintStitchCommand(self.project, self.stroke_original_states, self.update_view_and_palette)
+                    self.undo_stack.push(cmd)
+                else:
+                    cmd = ToggleStitchCommand(
+                        self.project,
+                        self.stroke_original_states.keys(),
+                        self.drawing_mode == 'paint',
+                        self.update_view
+                    )
+                    self.undo_stack.push(cmd)
             self.drawing_mode = None
             self.progressChanged.emit()
 
@@ -690,12 +757,12 @@ class Canvas(QWidget):
             painter.setPen(QColor("#aaaaaa"))
             top_step = self.get_ruler_step(cell_size)
             for c, x in visible_cols:
-                if c % top_step == 0:
+                if (c + 1) % top_step == 0 or c == 0:
                     # Draw tick
                     painter.drawLine(QPointF(x, self.margin_top - 6), QPointF(x, self.margin_top - 1))
                     # Draw text
                     rect_text = QRectF(x - cell_size * 2, 2, cell_size * 4, self.margin_top - 10)
-                    painter.drawText(rect_text, Qt.AlignCenter, str(c))
+                    painter.drawText(rect_text, Qt.AlignCenter, str(c + 1))
 
             # Left Ruler
             painter.fillRect(QRectF(0, self.margin_top, self.margin_left, self.height() - self.margin_top - margin_bottom), QColor("#1f1f1f"))
@@ -704,7 +771,7 @@ class Canvas(QWidget):
             
             left_step = self.get_ruler_step(cell_size)
             for r, y in visible_rows:
-                if r % left_step == 0:
+                if (r + 1) % left_step == 0 or r == 0:
                     # Draw tick
                     painter.setPen(QColor("#aaaaaa"))
                     painter.drawLine(QPointF(self.margin_left - 6, y), QPointF(self.margin_left - 1, y))
@@ -743,10 +810,10 @@ class Canvas(QWidget):
                 
                 painter.setPen(QColor("#aaaaaa"))
                 for c, x in visible_cols:
-                    if c % top_step == 0:
+                    if (c + 1) % top_step == 0 or c == 0:
                         painter.drawLine(QPointF(x, self.height() - margin_bottom), QPointF(x, self.height() - margin_bottom + 5))
                         rect_text = QRectF(x - cell_size * 2, self.height() - margin_bottom + 6, cell_size * 4, margin_bottom - 8)
-                        painter.drawText(rect_text, Qt.AlignCenter, str(c))
+                        painter.drawText(rect_text, Qt.AlignCenter, str(c + 1))
 
             # Right Ruler (if enabled)
             if margin_right > 0:
@@ -756,7 +823,7 @@ class Canvas(QWidget):
                 
                 painter.setPen(QColor("#aaaaaa"))
                 for r, y in visible_rows:
-                    if r % left_step == 0:
+                    if (r + 1) % left_step == 0 or r == 0:
                         painter.drawLine(QPointF(self.width() - margin_right, y), QPointF(self.width() - margin_right + 5, y))
                         rect_text = QRectF(self.width() - margin_right + 8, y - 6, margin_right - 12, 12)
                         painter.drawText(rect_text, Qt.AlignLeft | Qt.AlignVCenter, str(r + 1))

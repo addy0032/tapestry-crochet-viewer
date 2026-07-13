@@ -204,3 +204,184 @@ class ReplaceColorCommand(QUndoCommand):
                 self.project.color_palette[h]['count'] = color_counts[h]
             else:
                 self.project.color_palette.pop(h, None)
+
+class PaintStitchCommand(QUndoCommand):
+    """
+    Undo/Redo command for changing the color of specific stitches.
+    Supports single or batch changes (e.g. click, dragging).
+    """
+    def __init__(self, project, stitch_color_map, callback):
+        """
+        stitch_color_map: dict of (r, c) -> new_hex_color
+        """
+        super().__init__()
+        self.project = project
+        self.stitch_color_map = stitch_color_map
+        self.callback = callback
+        
+        # Save previous states: (r, c) -> (old_hex, old_rgb)
+        self.previous_states = {}
+        for (r, c), new_hex in stitch_color_map.items():
+            old_hex = self.project.pixel_hexes[r][c]
+            old_rgb = self.project.pixels[r][c]
+            self.previous_states[(r, c)] = (old_hex, old_rgb)
+
+    def redo(self):
+        for (r, c), new_hex in self.stitch_color_map.items():
+            old_hex = self.project.pixel_hexes[r][c]
+            if old_hex == new_hex:
+                continue
+                
+            # Update pixel colors
+            self.project.pixel_hexes[r][c] = new_hex
+            r_val = int(new_hex[1:3], 16)
+            g_val = int(new_hex[3:5], 16)
+            b_val = int(new_hex[5:7], 16)
+            self.project.pixels[r][c] = (r_val, g_val, b_val)
+            
+            # Update counts in color_palette
+            if old_hex in self.project.color_palette:
+                self.project.color_palette[old_hex]['count'] = max(0, self.project.color_palette[old_hex]['count'] - 1)
+            if new_hex in self.project.color_palette:
+                self.project.color_palette[new_hex]['count'] += 1
+                
+        self.project.dirty = True
+        if self.callback:
+            self.callback()
+
+    def undo(self):
+        for (r, c), (old_hex, old_rgb) in self.previous_states.items():
+            new_hex = self.project.pixel_hexes[r][c]
+            if new_hex == old_hex:
+                continue
+                
+            # Restore pixel colors
+            self.project.pixel_hexes[r][c] = old_hex
+            self.project.pixels[r][c] = old_rgb
+            
+            # Restore counts in color_palette
+            if new_hex in self.project.color_palette:
+                self.project.color_palette[new_hex]['count'] = max(0, self.project.color_palette[new_hex]['count'] - 1)
+            if old_hex in self.project.color_palette:
+                self.project.color_palette[old_hex]['count'] += 1
+                
+        self.project.dirty = True
+        if self.callback:
+            self.callback()
+
+class AddColorCommand(QUndoCommand):
+    """
+    Undo/Redo command for adding a new color to the palette.
+    """
+    def __init__(self, project, hex_color, name, symbol, callback):
+        super().__init__()
+        self.project = project
+        self.hex_color = hex_color
+        self.name = name
+        self.symbol = symbol
+        self.callback = callback
+        
+    def redo(self):
+        r = int(self.hex_color[1:3], 16)
+        g = int(self.hex_color[3:5], 16)
+        b = int(self.hex_color[5:7], 16)
+        self.project.color_palette[self.hex_color] = {
+            'rgb': (r, g, b),
+            'name': self.name,
+            'symbol': self.symbol,
+            'count': 0
+        }
+        self.project.dirty = True
+        if self.callback:
+            self.callback()
+            
+    def undo(self):
+        self.project.color_palette.pop(self.hex_color, None)
+        self.project.dirty = True
+        if self.callback:
+            self.callback()
+
+class RemoveColorCommand(QUndoCommand):
+    """
+    Undo/Redo command for removing a color from the palette,
+    and replacing all matching pixels with White (#ffffff).
+    """
+    def __init__(self, project, hex_color, callback):
+        super().__init__()
+        self.project = project
+        self.hex_color = hex_color
+        self.callback = callback
+        
+        # Find all coordinates that currently have this color
+        self.affected_stitches = []
+        H = self.project.height
+        W = self.project.width
+        for r in range(H):
+            for c in range(W):
+                if self.project.pixel_hexes[r][c] == self.hex_color:
+                    self.affected_stitches.append((r, c))
+                    
+        # Save original state of white (#ffffff) color in palette
+        self.white_added = False
+        self.white_previous_info = None
+        if "#ffffff" in self.project.color_palette:
+            info = self.project.color_palette["#ffffff"]
+            self.white_previous_info = {
+                'rgb': info['rgb'],
+                'name': info['name'],
+                'symbol': info['symbol'],
+                'count': info['count']
+            }
+        
+        # Save original info of the deleted color
+        info = self.project.color_palette[self.hex_color]
+        self.deleted_info = {
+            'rgb': info['rgb'],
+            'name': info['name'],
+            'symbol': info['symbol'],
+            'count': info['count']
+        }
+
+    def redo(self):
+        # 1. Update pixels to white (#ffffff)
+        for r, c in self.affected_stitches:
+            self.project.pixel_hexes[r][c] = "#ffffff"
+            self.project.pixels[r][c] = (255, 255, 255)
+            
+        # 2. Add or update white (#ffffff) in color_palette
+        if "#ffffff" in self.project.color_palette:
+            self.project.color_palette["#ffffff"]['count'] += len(self.affected_stitches)
+        else:
+            self.project.color_palette["#ffffff"] = {
+                'rgb': (255, 255, 255),
+                'name': 'White',
+                'symbol': 'W',
+                'count': len(self.affected_stitches)
+            }
+            self.white_added = True
+            
+        # 3. Remove deleted color from palette
+        self.project.color_palette.pop(self.hex_color, None)
+        
+        self.project.dirty = True
+        if self.callback:
+            self.callback()
+
+    def undo(self):
+        # 1. Restore original pixels color
+        for r, c in self.affected_stitches:
+            self.project.pixel_hexes[r][c] = self.hex_color
+            self.project.pixels[r][c] = self.deleted_info['rgb']
+            
+        # 2. Restore white (#ffffff) state
+        if self.white_added:
+            self.project.color_palette.pop("#ffffff", None)
+        elif self.white_previous_info:
+            self.project.color_palette["#ffffff"] = self.white_previous_info.copy()
+            
+        # 3. Restore deleted color info
+        self.project.color_palette[self.hex_color] = self.deleted_info.copy()
+        
+        self.project.dirty = True
+        if self.callback:
+            self.callback()

@@ -277,6 +277,20 @@ class PalettePanel(QWidget):
         btn_layout.addWidget(self.btn_replace_color)
         
         tab_layout.addLayout(btn_layout)
+        
+        # Add and Delete buttons
+        btn_layout_add_del = QHBoxLayout()
+        self.btn_add_color = QPushButton("Add Color...")
+        self.btn_add_color.setToolTip("Add a new color to the palette")
+        self.btn_add_color.clicked.connect(self.add_new_color)
+        btn_layout_add_del.addWidget(self.btn_add_color)
+        
+        self.btn_delete_color = QPushButton("Delete Color...")
+        self.btn_delete_color.setToolTip("Remove a color from the palette (painted pixels turn to White empty stitches)")
+        self.btn_delete_color.clicked.connect(self.delete_selected_color)
+        btn_layout_add_del.addWidget(self.btn_delete_color)
+        
+        tab_layout.addLayout(btn_layout_add_del)
 
     def refresh_palette(self):
         self.color_tree.clear()
@@ -343,6 +357,83 @@ class PalettePanel(QWidget):
             self.canvas.update()
             self.minimap.update()
         self.refresh_stats()
+
+    def selected_hex_color(self):
+        item = self.color_tree.currentItem()
+        if item:
+            return item.data(0, Qt.UserRole)
+        return None
+
+    def add_new_color(self):
+        if not self.project:
+            return
+            
+        color = QColorDialog.getColor(Qt.white, self, "Select New Color to Add")
+        if color.isValid():
+            hex_color = color.name()
+            if hex_color in self.project.color_palette:
+                QMessageBox.warning(self, "Duplicate Color", "This color is already in the palette.")
+                return
+                
+            # Find first unused symbol
+            used_symbols = {info['symbol'] for info in self.project.color_palette.values()}
+            symbol = None
+            for sym in ["1","2","3","4","5","6","7","8","9","A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z"]:
+                if sym not in used_symbols:
+                    symbol = sym
+                    break
+            if not symbol:
+                symbol = "+"
+                
+            name = f"Color {len(self.project.color_palette) + 1}"
+            
+            from utils import AddColorCommand
+            cmd = AddColorCommand(self.project, hex_color, name, symbol, self.on_color_added)
+            self.undo_stack.push(cmd)
+
+    def on_color_added(self):
+        self.refresh_palette()
+        self.refresh_stats()
+        if self.canvas:
+            self.canvas.update()
+
+    def delete_selected_color(self):
+        selected = self.color_tree.currentItem()
+        if not selected:
+            QMessageBox.warning(self, "Selection Error", "Please select a color in the palette to delete.")
+            return
+            
+        hex_color = selected.data(0, Qt.UserRole)
+        affected_count = self.project.color_palette[hex_color]['count']
+        
+        if affected_count > 0:
+            reply = QMessageBox.question(
+                self, "Confirm Delete Color",
+                f"This color is used by {affected_count} stitches. Removing it will mark them as empty stitches (White). Do you want to proceed?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
+        else:
+            reply = QMessageBox.question(
+                self, "Confirm Delete Color",
+                f"Are you sure you want to remove the unused color {hex_color} from the palette?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
+                
+        from utils import RemoveColorCommand
+        cmd = RemoveColorCommand(self.project, hex_color, self.on_color_removed)
+        self.undo_stack.push(cmd)
+
+    def on_color_removed(self):
+        self.refresh_palette()
+        self.refresh_stats()
+        if self.canvas:
+            self.minimap.build_cached_image()
+            self.canvas.update()
+            self.minimap.update()
 
     def edit_color_item(self, model_index):
         item = self.color_tree.itemFromIndex(model_index)
@@ -600,12 +691,13 @@ class PalettePanel(QWidget):
         if not self.project or not self.canvas:
             return
         col, ok = QInputDialog.getInt(
-            self, "Go to Column", f"Enter Column (0 - {self.project.width-1}):",
-            self.project.current_cursor[1], 0, self.project.width - 1
+            self, "Go to Column", f"Enter Column (1 - {self.project.width}):",
+            self.project.current_cursor[1] + 1, 1, self.project.width
         )
         if ok:
-            self.canvas.move_cursor_to(self.project.current_cursor[0], col)
-            self.center_canvas_on_cursor(self.project.current_cursor[0], col)
+            col_idx = col - 1
+            self.canvas.move_cursor_to(self.project.current_cursor[0], col_idx)
+            self.center_canvas_on_cursor(self.project.current_cursor[0], col_idx)
 
     def center_canvas_on_cursor(self, r, c):
         cell_size = self.canvas.get_cell_size()

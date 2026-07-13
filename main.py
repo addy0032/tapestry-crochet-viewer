@@ -82,6 +82,7 @@ class CrochetMainWindow(QMainWindow):
         self.toolbar.redoClicked.connect(self.undo_stack.redo)
         self.toolbar.zoomFitClicked.connect(self.zoom_fit)
         self.toolbar.toggleSidebarClicked.connect(self.toggle_sidebar)
+        self.toolbar.toolModeChanged.connect(self.on_tool_mode_changed)
         
         self.toolbar.gridToggled.connect(self.on_grid_toggled)
         self.toolbar.gridThicknessChanged.connect(self.on_grid_thickness_changed)
@@ -118,6 +119,8 @@ class CrochetMainWindow(QMainWindow):
         self.canvas.hoverChanged.connect(self.on_canvas_hover_changed)
         self.canvas.zoomChanged.connect(self.on_canvas_zoom_changed)
         self.canvas.progressChanged.connect(self.on_canvas_progress_changed)
+        self.canvas.paletteChanged.connect(self.on_canvas_palette_changed)
+        self.canvas.active_paint_color_callback = self.get_active_paint_color
         
         # Connect Undo Stack changes to refresh Undo/Redo buttons
         self.undo_stack.canUndoChanged.connect(self.toolbar.btn_undo.setEnabled)
@@ -632,11 +635,12 @@ class CrochetMainWindow(QMainWindow):
             return
         from PySide6.QtWidgets import QInputDialog
         col, ok = QInputDialog.getInt(
-            self, "Go to Column", f"Enter Column (0 - {self.project.width-1}):",
-            self.project.current_cursor[1], 0, self.project.width - 1
+            self, "Go to Column", f"Enter Column (1 - {self.project.width}):",
+            self.project.current_cursor[1] + 1, 1, self.project.width
         )
         if ok:
-            self.canvas.move_cursor_to(self.project.current_cursor[0], col)
+            col_idx = col - 1
+            self.canvas.move_cursor_to(self.project.current_cursor[0], col_idx)
             self.center_canvas_on_cursor()
 
     def center_canvas_on_cursor(self):
@@ -760,12 +764,14 @@ class CrochetMainWindow(QMainWindow):
             self.project.direction_mode = text
             self.project.dirty = True
             self.palette_panel.refresh_stats()
+            self.canvas.update()
 
     def on_reverse_direction_toggled(self, checked):
         if self.project:
             self.project.reverse_direction = checked
             self.project.dirty = True
             self.palette_panel.refresh_stats()
+            self.canvas.update()
 
     def on_completion_style_changed(self, style_key):
         if self.project:
@@ -821,6 +827,23 @@ class CrochetMainWindow(QMainWindow):
                 return
 
         super().keyReleaseEvent(event)
+
+    def on_tool_mode_changed(self, mode):
+        self.canvas.tool_mode = mode
+        self.statusBar().showMessage(f"Active Tool: {mode}", 2000)
+
+    def get_active_paint_color(self):
+        color = self.palette_panel.selected_hex_color()
+        if not color and self.project and self.project.color_palette:
+            color = list(self.project.color_palette.keys())[0]
+        return color
+
+    def on_canvas_palette_changed(self):
+        self.palette_panel.refresh_palette()
+        self.palette_panel.refresh_stats()
+        self.palette_panel.minimap.build_cached_image()
+        self.palette_panel.minimap.update()
+        self.canvas.update()
 
     def closeEvent(self, event):
         if self.project and self.project.dirty:

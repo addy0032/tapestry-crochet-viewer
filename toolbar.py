@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import (QToolBar, QComboBox, QPushButton, QColorDialog, 
-                             QCheckBox, QLabel, QWidget, QHBoxLayout, QSizePolicy)
+                             QCheckBox, QLabel, QWidget, QHBoxLayout, QSizePolicy,
+                             QListView)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QColor, QPixmap
 
@@ -35,6 +36,7 @@ class CrochetToolbar(QToolBar):
     reverseDirectionToggled = Signal(bool)
     completionStyleChanged = Signal(str)
     progressLineColorChanged = Signal(QColor)
+    toolModeChanged = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__("Main Toolbar", parent)
@@ -70,8 +72,17 @@ class CrochetToolbar(QToolBar):
                 background-color: #00adb5;
                 color: #121212;
             }
-            QComboBox::drop-down {
-                border: none;
+            QComboBox QAbstractItemView {
+                background-color: #2d2d2d;
+                color: #ffffff;
+                selection-background-color: #00adb5;
+                selection-color: #121212;
+                border: 1px solid #444;
+                outline: 0;
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 6px 8px;
+                min-height: 24px;
             }
             QCheckBox::indicator {
                 width: 14px;
@@ -87,6 +98,13 @@ class CrochetToolbar(QToolBar):
         """)
         
         self.init_ui()
+
+    def add_combo_widget(self, combo):
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(combo)
+        self.addWidget(container)
 
     def init_ui(self):
         # 1. File Section
@@ -118,15 +136,25 @@ class CrochetToolbar(QToolBar):
         self.btn_redo.clicked.connect(self.redoClicked.emit)
         self.addWidget(self.btn_redo)
         
+        # 2.5 Tool Selection Section
+        self.addWidget(QLabel("Tool:"))
+        self.tool_combo = QComboBox()
+        self.tool_combo.setView(QListView())
+        self.tool_combo.addItems(["Track Progress", "Paint Stitch"])
+        self.tool_combo.setToolTip("Track Progress: toggles completed status. Paint Stitch: changes color of clicked pixels.")
+        self.tool_combo.currentTextChanged.connect(self.toolModeChanged.emit)
+        self.add_combo_widget(self.tool_combo)
+        
         self.addSeparator()
         
         # 3. Zoom Section
         self.addWidget(QLabel("Zoom:"))
         self.zoom_combo = QComboBox()
-        self.zoom_combo.addItems(["6.25%", "12.5%", "25%", "50%", "75%", "100%", "150%", "200%", "300%", "400%", "600%", "800%", "1200%", "1600%", "2400%", "3200%", "4800%", "6400%"])
-        self.zoom_combo.setCurrentIndex(5)  # default 100%
+        self.zoom_combo.setView(QListView())
+        self.zoom_combo.addItems(["6.25%", "12.5%", "25%", "37.5%", "50%", "75%", "100%", "150%", "200%", "300%", "400%", "600%", "800%", "1200%", "1600%", "2400%", "3200%", "4800%", "6400%"])
+        self.zoom_combo.setCurrentIndex(6)  # default 100%
         self.zoom_combo.setFixedWidth(80)
-        self.addWidget(self.zoom_combo)
+        self.add_combo_widget(self.zoom_combo)
         
         self.btn_fit = QPushButton("Fit")
         self.btn_fit.setToolTip("Fit Pattern to Screen (0)")
@@ -191,10 +219,11 @@ class CrochetToolbar(QToolBar):
         # 6. Crochet settings
         self.addWidget(QLabel("Crochet Order:"))
         self.dir_combo = QComboBox()
+        self.dir_combo.setView(QListView())
         self.dir_combo.addItems(["L2R", "R2L", "Snake"])
         self.dir_combo.setCurrentIndex(2) # Default Snake
         self.dir_combo.currentTextChanged.connect(self.directionModeChanged.emit)
-        self.addWidget(self.dir_combo)
+        self.add_combo_widget(self.dir_combo)
         
         self.chk_reverse = QCheckBox("Reverse")
         self.chk_reverse.setToolTip("Reverse movement flow")
@@ -207,9 +236,10 @@ class CrochetToolbar(QToolBar):
         # 7. Style preferences
         self.addWidget(QLabel("Progress Style:"))
         self.style_combo = QComboBox()
+        self.style_combo.setView(QListView())
         self.style_combo.addItems(["Darkened", "Semi-Transparent", "Crossed Out", "Horizontal Line"])
         self.style_combo.currentTextChanged.connect(self.on_style_changed)
-        self.addWidget(self.style_combo)
+        self.add_combo_widget(self.style_combo)
         
         self.btn_progress_line_color = QPushButton("Line Color...")
         self.btn_progress_line_color.setToolTip("Change the color of the cross or horizontal progress line")
@@ -226,9 +256,10 @@ class CrochetToolbar(QToolBar):
         # 8. Grid Details
         self.addWidget(QLabel("Grid Thickness:"))
         self.thickness_combo = QComboBox()
+        self.thickness_combo.setView(QListView())
         self.thickness_combo.addItems(["Thin", "Medium", "Thick"])
         self.thickness_combo.currentTextChanged.connect(self.gridThicknessChanged.emit)
-        self.addWidget(self.thickness_combo)
+        self.add_combo_widget(self.thickness_combo)
         
         self.btn_grid_color = QPushButton("Color...")
         self.btn_grid_color.setToolTip("Change Grid Color")

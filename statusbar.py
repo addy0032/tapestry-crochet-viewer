@@ -95,7 +95,7 @@ class CrochetStatusBar(QStatusBar):
         symbol = color_info['symbol'] if color_info else "?"
         
         self.lbl_cursor.setText(
-            f"Cursor: Row <span class='status-val'>{row + 1}</span> Col <span class='status-val'>{col}</span> | "
+            f"Cursor: Row <span class='status-val'>{row + 1}</span> Col <span class='status-val'>{col + 1}</span> | "
             f"Color: <span class='status-val'>{color_name} ({symbol}) {hex_val}</span>"
         )
 
@@ -109,6 +109,6 @@ class CrochetStatusBar(QStatusBar):
         symbol = color_info['symbol'] if color_info else "?"
         
         self.lbl_hover.setText(
-            f"Hover: Row <span class='status-val'>{row + 1}</span> Col <span class='status-val'>{col}</span> | "
+            f"Hover: Row <span class='status-val'>{row + 1}</span> Col <span class='status-val'>{col + 1}</span> | "
             f"Color: <span class='status-val'>{color_name} ({symbol}) {hex_val}</span>"
         )
