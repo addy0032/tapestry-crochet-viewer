@@ -529,26 +529,54 @@ class PalettePanel(QWidget):
         
         row_hexes = [self.project.pixel_hexes[r][col] for col in cols]
         
-        # Group color sequences (e.g. BK (4), DB (2)...)
-        seq_groups = []
-        if row_hexes:
-            current_hex = row_hexes[0]
-            current_count = 1
-            for h in row_hexes[1:]:
-                if h == current_hex:
-                    current_count += 1
-                else:
-                    color_info = self.project.color_palette.get(current_hex)
-                    sym = color_info['symbol'] if color_info else "?"
-                    seq_groups.append(f"{sym} ({current_count})")
-                    current_hex = h
-                    current_count = 1
-            # Add final group
+        # Group color sequences (e.g. BK (4), DB (2)...) with exact column indices
+        runs = []
+        if cols:
+            current_hex = self.project.pixel_hexes[r][cols[0]]
             color_info = self.project.color_palette.get(current_hex)
-            sym = color_info['symbol'] if color_info else "?"
-            seq_groups.append(f"{sym} ({current_count})")
+            current_sym = color_info['symbol'] if color_info else "?"
+            current_cols = [cols[0]]
             
-        self.sequence_text.setText(", ".join(seq_groups))
+            for col in cols[1:]:
+                h = self.project.pixel_hexes[r][col]
+                if h == current_hex:
+                    current_cols.append(col)
+                else:
+                    runs.append({
+                        'hex': current_hex,
+                        'symbol': current_sym,
+                        'cols': current_cols
+                    })
+                    current_hex = h
+                    color_info = self.project.color_palette.get(current_hex)
+                    current_sym = color_info['symbol'] if color_info else "?"
+                    current_cols = [col]
+            # Add final group
+            runs.append({
+                'hex': current_hex,
+                'symbol': current_sym,
+                'cols': current_cols
+            })
+            
+        # Build HTML checklist
+        html_lines = []
+        for run in runs:
+            hex_val = run['hex']
+            sym = run['symbol']
+            run_cols = run['cols']
+            total = len(run_cols)
+            completed = sum(1 for col in run_cols if (r, col) in self.project.completed_stitches)
+            is_completed = (completed == total)
+            
+            # Use html representation with swatch, checkbox, and status
+            if is_completed:
+                line = f"<span style='color: #666666; text-decoration: line-through;'>☑ <font color='{hex_val}'>■</font> {sym} ({total})</span>"
+            else:
+                prog_str = f"{completed}/{total}" if completed > 0 else f"{total}"
+                line = f"<span style='color: #ffffff;'>☐ <font color='{hex_val}'>■</font> {sym} ({prog_str})</span>"
+            html_lines.append(line)
+            
+        self.sequence_text.setHtml("<br>".join(html_lines))
         
         # Calculate color counts for row
         row_counts = Counter(row_hexes)
